@@ -84,6 +84,65 @@ buf_u8_get(uint8_t *buf, uint8_t *val) {
     *val = *buf;
 }
 
+/* Get an unaligned field up to 32 bits */
+
+/*
+ * Fill the low order bits of val8 for unaligned access
+ * Returns boolean: True if done; False if still bits to get
+ */
+static inline int
+_get_bottom_bits(uint8_t *buf, int bit_offset, int bits_remaining, uint8_t *val8) {
+    *val8 = *buf >> bit_offset;
+    if (bit_offset + bits_remaining < 8) {
+        *val8 &= ((1 << bits_remaining) - 1);
+        return 1;
+    }
+
+    return 0;
+}
+
+/*
+ * Fill the high order bits of val8 for unaligned access
+ * Returns boolean: True if done; False if still bits to get
+ */
+static inline int
+_get_top_bits(uint8_t *buf, int bit_offset, int bits_remaining, uint8_t *val8) {
+    /* *val8 has 8 - bit_offset bits already filled, so up to bit_offset bits
+     * available in high order bits.  Fill upper bits up to
+     * bit width bits from low order bits of *buf.
+     */
+    *val8 |= (*buf << (8 - bit_offset));
+    if (bits_remaining < bit_offset) {
+        /* Clear upper bits if not in field */
+        *val8 &= ((1 << ((8 - bit_offset) + bits_remaining)) - 1)
+    }
+    return (bits_remaining <= bit_offset);
+}
+
+/* Get an unaligned field up to 32 bits */
+static inline void
+buf_unaligned_get(uint8_t *buf, int bit_offset, int bit_width, uint32_t *val) {
+    uint8_t val8;
+    int bits_to_get;
+    int offset = 0;
+
+    *val = 0;
+    for (byte_count = 0; bit_width > 0; ++byte_count) {
+        _get_bottom_bits(&buf[byte_count], bit_offset, bit_width, &val8);
+        bit_width -= bit_offset;
+        if (bit_width <= 0) {
+            *val |= val8 << byte_count;
+            return;
+        }
+        _get_top_bits(&buf[byte_count], bit_offset, bit_width, &val8);
+        *val |= val8 << byte_count;
+        if (bit_width <= 0) {
+            return;
+        }
+        bit_width -= (8 - bit_offset);
+    }
+}
+
 static inline void
 buf_octets_get(uint8_t *buf, uint8_t *dst, int bytes) {
     MEMCPY(dst, buf, bytes);
