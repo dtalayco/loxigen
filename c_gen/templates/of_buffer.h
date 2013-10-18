@@ -88,25 +88,28 @@ buf_u8_get(uint8_t *buf, uint8_t *val) {
 
 /*
  * Fill the low order bits of val8 for unaligned access
- * Returns boolean: True if done; False if still bits to get
+ *
+ * Gets 8 - bit_offset bits (or bits_remaining if less)
+ * Bottom refers to the bottom bits of *val8 which come from the
+ * top bits of *buf
  */
-static inline int
-_get_bottom_bits(uint8_t *buf, int bit_offset, int bits_remaining, uint8_t *val8) {
+static inline void
+_get_bottom_bits(uint8_t *buf, int bit_offset, int bits_remaining,
+                 uint8_t *val8) {
     *val8 = *buf >> bit_offset;
     if (bit_offset + bits_remaining < 8) {
         *val8 &= ((1 << bits_remaining) - 1);
-        return 1;
     }
-
-    return 0;
 }
 
 /*
  * Fill the high order bits of val8 for unaligned access
- * Returns boolean: True if done; False if still bits to get
+ *
+ * Top refers to the top bits of *val8 which come from the bottom bits of *buf
  */
-static inline int
-_get_top_bits(uint8_t *buf, int bit_offset, int bits_remaining, uint8_t *val8) {
+static inline void
+_get_top_bits(uint8_t *buf, int bit_offset, int bits_remaining,
+              uint8_t *val8) {
     /* *val8 has 8 - bit_offset bits already filled, so up to bit_offset bits
      * available in high order bits.  Fill upper bits up to
      * bit width bits from low order bits of *buf.
@@ -114,32 +117,110 @@ _get_top_bits(uint8_t *buf, int bit_offset, int bits_remaining, uint8_t *val8) {
     *val8 |= (*buf << (8 - bit_offset));
     if (bits_remaining < bit_offset) {
         /* Clear upper bits if not in field */
-        *val8 &= ((1 << ((8 - bit_offset) + bits_remaining)) - 1)
+        *val8 &= ((1 << ((8 - bit_offset) + bits_remaining)) - 1);
     }
-    return (bits_remaining <= bit_offset);
 }
 
-/* Get an unaligned field up to 32 bits */
+/**
+ * Get an unaligned field up to 32 bits
+ */
 static inline void
 buf_unaligned_get(uint8_t *buf, int bit_offset, int bit_width, uint32_t *val) {
     uint8_t val8;
-    int bits_to_get;
-    int offset = 0;
+    int byte_count;
 
     *val = 0;
     for (byte_count = 0; bit_width > 0; ++byte_count) {
         _get_bottom_bits(&buf[byte_count], bit_offset, bit_width, &val8);
+        bit_width -= (8 - bit_offset);
+        if (bit_width <= 0) {
+            *val |= (((uint32_t)val8) << (byte_count * 8));
+            return;
+        }
+        _get_top_bits(&buf[byte_count + 1], bit_offset, bit_width, &val8);
+        *val |= (((uint32_t)val8) << (byte_count * 8));
         bit_width -= bit_offset;
         if (bit_width <= 0) {
-            *val |= val8 << byte_count;
             return;
         }
-        _get_top_bits(&buf[byte_count], bit_offset, bit_width, &val8);
-        *val |= val8 << byte_count;
-        if (bit_width <= 0) {
-            return;
-        }
-        bit_width -= (8 - bit_offset);
+    }
+}
+
+/* Indexed by bit_width when < 8 */
+static const uint8_t _width_masks[8] = {0, 0x1, 0x3, 0x7, 0xf, 0x1f, 0x3f, 0x7f};
+
+/**
+ * Copy from bit 0 in val to bit_offset in *buf, up to bit_width or
+ * end of byte (in *buf), whichever is less.
+ */
+
+static inline void
+_mod_first_byte(uint8_t *buf, int bit_offset, int bit_width, uint32_t val)
+{
+    uint8_t val8;
+
+    val8 = val & 0xff;
+    val8 <<= bit_offset;
+    if (bit_offset + bit_width < 8) {
+        /* End of field below end of byte */
+        /* Clear bits to change in buf */
+        *buf &= ~(_width_masks[bit_width] << bit_offset);
+        *buf |= val8;
+        /* Verify value fits in field */
+        ASSERT(!(val8 & ~(_width_masks[bit_width] << bit_offset)));
+    } else {
+        /* End of field extends at least to end of byte */
+        *buf &= 0xff << bit_offset;
+        *buf |= val8;
+    }
+}
+
+
+/**
+ * Copy from bit 0 in val to bit 0 in *buf, up to bit_width or
+ * end of byte (in *buf), whichever is less.
+ */
+
+static inline void
+_mod_byte_from_0(uint8_t *buf, int bit_width, uint32_t val)
+{
+    uint8_t val8;
+
+    /* Indexed by bit_width when < 8 */
+
+    val8 = val & 0xff;
+    if (bit_width < 8) {
+        /* Only need bit_width more bits from val */
+        *buf &= ~(_width_masks[bit_width]);
+        *buf |= val8;
+        ASSERT(!(val8 & ~_width_masks[bit_width]));
+    } else { /* Goes to end of byte */
+        *buf = val & 0xff;
+    }
+}
+
+
+/**
+ * Set an unaligned field up to 32 bits
+ *
+ * Put the lower bit_width bits from
+ * val into the buffer starting at bit_offset.
+ */
+static inline void
+buf_unaligned_set(uint8_t *buf, int bit_offset, int bit_width, uint32_t val) {
+    _mod_first_byte(buf, bit_offset, bit_width, val);
+    bit_width -= (8 - bit_offset);
+    if (bit_width <= 0) {
+        return; /* Done in first byte */
+    }
+    /* Have used 8-bit_offset bits from val */
+    val >>= (8 - bit_offset);
+
+    /* Process up to 8 bits at a time */
+    while (bit_width > 0) {
+        _mod_byte_from_0(buf, bit_width, val);
+        val >>= 8;
+        bit_width -= 8;
     }
 }
 

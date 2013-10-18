@@ -947,14 +947,15 @@ of_wire_buffer_replace_data(of_wire_buffer_t *wbuf,
 
 
 /**
- * Get a field  scalar from a wire buffer
+ * Get an unaligned field from a wire buffer
  * @param wbuf The pointer to the wire buffer structure
  * @param offset Offset in the wire buffer to first byte
  * @param bit_offset Bit offset in the first byte to start of field
  * @param bit_width How many bits to extract
  * @param value Pointer to 32 bit value.
  *
- * TBD: Endian handling, etc.  
+ * Only supports fields up to 32 bits wide.  Value is placed in low
+ * order bits of *value.
  */
 
 static inline void
@@ -964,28 +965,42 @@ of_wire_buffer_field_get(of_wire_buffer_t *wbuf,
                          int bit_width,  /* Number of bits to extract */
                          uint32_t *value)
 {
-    uint8_t byte_val;
-
+    ASSERT(bit_offset < 8); /* Must be within a byte */
+    ASSERT(bit_width > 0);  /* Non trivial field */
+    ASSERT(bit_width <= 32);  /* Max size is 32 bit field */
     OF_WIRE_BUFFER_ACCESS_CHECK(wbuf, offset + (bit_width / 8) + 1);
-    
+
     buf_unaligned_get(OF_WIRE_BUFFER_INDEX(wbuf, offset), bit_offset,
                       bit_width, value);
 }
 
+
 /**
- * Set a uint8_t scalar in a wire buffer
+ * Set an unaligned field in a wire buffer
  * @param wbuf The pointer to the wire buffer structure
- * @param offset Offset in the wire buffer
- * @param value The value to store
+ * @param offset Offset in the wire buffer to first byte
+ * @param bit_offset Bit offset in the first byte to start of field
+ * @param bit_width How many bits to update
+ * @param value 32 bit value to use.
  *
- * The underlying buffer accessor funtions handle endian and alignment.
+ * Only supports fields up to 32 bits wide.  Low order bits of value
+ * are used.
  */
 
 static inline void
-of_wire_buffer_u8_set(of_wire_buffer_t *wbuf, int offset, uint8_t value)
+of_wire_buffer_field_set(of_wire_buffer_t *wbuf,
+                         int offset,     /* Byte offset */
+                         int bit_offset, /* Bit offset of start */
+                         int bit_width,  /* Number of bits to extract */
+                         uint32_t value)
 {
-    OF_WIRE_BUFFER_ACCESS_CHECK(wbuf, offset + (int) sizeof(uint8_t));
-    buf_u8_set(OF_WIRE_BUFFER_INDEX(wbuf, offset), value);
+    ASSERT(bit_offset < 8); /* Must be within a byte */
+    ASSERT(bit_width > 0);  /* Non trivial field */
+    ASSERT(bit_width <= 32);  /* Max size is 32 bit field */
+    OF_WIRE_BUFFER_ACCESS_CHECK(wbuf, offset + (bit_width / 8) + 1);
+
+    buf_unaligned_set(OF_WIRE_BUFFER_INDEX(wbuf, offset), bit_offset,
+                      bit_width, value);
 }
 
 #endif /* _OF_WIRE_BUF_H_ */

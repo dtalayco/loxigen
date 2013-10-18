@@ -39,6 +39,8 @@ main(int argc, char *argv[])
 
     TEST_ASSERT(run_list_limits_tests() == TEST_PASS);
 
+    TEST_ASSERT(run_buffer_accessor_tests() == TEST_PASS);
+
     RUN_TEST(ext_objs);
 
     TEST_ASSERT(test_datafiles() == TEST_PASS);
