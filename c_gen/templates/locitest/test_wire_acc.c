@@ -3,6 +3,10 @@
 #include <locitest/test_common.h>
 #include <loci/of_wire_buf.h>
 
+#ifndef NUM_ELS
+#define NUM_ELS(ar) (sizeof(ar)/sizeof((ar)[0]))
+#endif
+
 /**
  * Test low level wire accessor functions
  *
@@ -84,8 +88,7 @@ test_zebra_value_get(void)
 
     wbuf = of_wire_buffer_new_bind(zebra_buf, 5, unbind_free);
     TEST_ASSERT(wbuf != NULL);
-    for (idx = 0; idx < sizeof(zebra_test_cases)/sizeof(zebra_test_cases[0]);
-         idx++) {
+    for (idx = 0; idx < NUM_ELS(zebra_test_cases); idx++) {
 
         for (bit_offset = 0; bit_offset < 8; bit_offset++) {
             of_wire_buffer_field_get(wbuf, 0,
@@ -112,7 +115,7 @@ test_general_value_get(void)
     int idx;
 
     /* Special cases */
-    for (idx = 0; idx < sizeof(get_test_data)/sizeof(get_test_data[0]); idx++) {
+    for (idx = 0; idx < NUM_ELS(get_test_data); idx++) {
         wbuf = of_wire_buffer_new_bind(get_test_data[idx].buf, 5, unbind_free);
         TEST_ASSERT(wbuf != NULL);
         of_wire_buffer_field_get(wbuf, 0,
@@ -171,7 +174,7 @@ static int
 test_shifting_1_set(void)
 {
     uint32_t val32 = 1;
-    
+
     /* Shift n-bits of ones thru offset 0 to 7 */
     for (bit_width = 1; bit_width <= 32; bit_width++) {
         val32 = (1 << bit_width) - 1;
@@ -184,16 +187,14 @@ test_shifting_1_set(void)
 
     /* Now shift 2 bit field through 7 bits of offset */
 
-
     /* Shift 1 thru 31 bits and set value */
     for (val32 = 1; val32; val32 <<= 1) {
         ZERO_SCRATCH;
         wbuf = of_wire_buffer_new_bind(scratch, 5, unbind_free);
-        of_wire_buffer_field_set(wbuf, 0, 0, , 
-                                     of_wire_buffer_free(wbuf);
-        
+        of_wire_buffer_field_set(wbuf, 0, 0,
+                                 of_wire_buffer_free(wbuf));
     }
-
+    return TEST_PASS;
 }
 
 static int
@@ -204,7 +205,7 @@ test_general_value_set(void)
     int idx;
 
     /* Special cases */
-    for (idx = 0; idx < sizeof(set_test_data)/sizeof(set_test_data[0]); idx++) {
+    for (idx = 0; idx < NUM_ELS(set_test_data); idx++) {
         wbuf = of_wire_buffer_new_bind(set_test_data[idx].buf, 5, unbind_free);
         TEST_ASSERT(wbuf != NULL);
         of_wire_buffer_field_set(wbuf, 0,
@@ -220,12 +221,53 @@ test_general_value_set(void)
 }
 #endif
 
+static int
+test_set_get(void)
+{
+    /* Set values into a buffer containing random values, then verify with get */
+    uint8_t buf[5];
+    int idx, bit_offset, bit_width;
+    uint32_t val32, expected;
+    static const uint32_t vals[] = {0, 1, 2, 3, 17, 255, 256, 1023, 1024,
+                                    0xfff, 0x1000, 0xabcdef, 0x10000000,
+                                    0xffffffff};
+    of_wire_buffer_t *wbuf;
+
+    wbuf = of_wire_buffer_new_bind(buf, 5, unbind_free);
+    for (idx = 0; idx < NUM_ELS(vals); idx++) {
+        for (bit_offset = 0; bit_offset < 8; bit_offset++) {
+            for (bit_width = 1; bit_width <= 32; bit_width++) {
+                memset(buf, ~vals[idx], sizeof(buf));
+                of_wire_buffer_field_set(wbuf, 0,
+                                         bit_offset,
+                                         bit_width,
+                                         vals[idx]);
+                of_wire_buffer_field_get(wbuf, 0,
+                                         bit_offset,
+                                         bit_width,
+                                         &val32);
+                if (bit_width < 32) {
+                    expected = ((1 << bit_width) - 1) & vals[idx];
+                } else {
+                    expected = vals[idx];
+                }
+                TEST_ASSERT(val32 == expected);
+            }
+        }
+    }
+
+    of_wire_buffer_free(wbuf);
+
+    return TEST_PASS;
+}
+
 int
 run_buffer_accessor_tests(void)
 {
     RUN_TEST(zero_value_get);
     RUN_TEST(zebra_value_get);
     RUN_TEST(general_value_get);
+    RUN_TEST(set_get);
 
     return TEST_PASS;
 }
